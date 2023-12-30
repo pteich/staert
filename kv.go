@@ -3,20 +3,19 @@ package staert
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/abronan/valkeyrie"
-	"github.com/abronan/valkeyrie/store"
 	"github.com/containous/flaeg"
+	"github.com/kvtools/valkeyrie/store"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -30,14 +29,13 @@ type KvSource struct {
 }
 
 // NewKvSource creates a new KvSource
-func NewKvSource(backend store.Backend, addrs []string, options *store.Config, prefix string) (*KvSource, error) {
-	kvStore, err := valkeyrie.NewStore(backend, addrs, options)
-	return &KvSource{Store: kvStore, Prefix: prefix}, err
+func NewKvSource(kvStore store.Store, prefix string) (*KvSource, error) {
+	return &KvSource{Store: kvStore, Prefix: prefix}, nil
 }
 
 // Parse uses valkeyrie and mapstructure to fill the structure
 func (kv *KvSource) Parse(cmd *flaeg.Command) (*flaeg.Command, error) {
-	err := kv.LoadConfig(cmd.Config)
+	err := kv.LoadConfig(context.Background(), cmd.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +43,8 @@ func (kv *KvSource) Parse(cmd *flaeg.Command) (*flaeg.Command, error) {
 }
 
 // LoadConfig loads data from the KV Store into the config structure (given by reference)
-func (kv *KvSource) LoadConfig(config interface{}) error {
-	pairs, err := kv.ListValuedPairWithPrefix(kv.Prefix)
+func (kv *KvSource) LoadConfig(ctx context.Context, config interface{}) error {
+	pairs, err := kv.ListValuedPairWithPrefix(ctx, kv.Prefix)
 	if err != nil {
 		return err
 	}
@@ -171,7 +169,7 @@ func readCompressedData(data string, fs ...func(io.Reader) (io.Reader, error)) (
 		var reader io.Reader
 		reader, err = f(bytes.NewBufferString(data))
 		if err == nil {
-			return ioutil.ReadAll(reader)
+			return io.ReadAll(reader)
 		}
 	}
 	return nil, err
@@ -186,7 +184,7 @@ func gzipReader(r io.Reader) (io.Reader, error) {
 }
 
 // StoreConfig stores the config into the KV Store
-func (kv *KvSource) StoreConfig(config interface{}) error {
+func (kv *KvSource) StoreConfig(ctx context.Context, config interface{}) error {
 	kvMap := map[string]string{}
 	if err := collateKvRecursive(reflect.ValueOf(config), kvMap, kv.Prefix); err != nil {
 		return err
@@ -204,7 +202,7 @@ func (kv *KvSource) StoreConfig(config interface{}) error {
 				IsDir: true,
 			}
 		}
-		if err := kv.Put(k, []byte(kvMap[k]), writeOptions); err != nil {
+		if err := kv.Put(ctx, k, []byte(kvMap[k]), writeOptions); err != nil {
 			return err
 		}
 	}
@@ -330,16 +328,16 @@ func writeCompressedData(data []byte) (string, error) {
 // ListRecursive lists all key value children under key
 // Replaced by ListValuedPairWithPrefix
 // Deprecated
-func (kv *KvSource) ListRecursive(key string, pairs map[string][]byte) error {
-	pairsN1, err := kv.List(key, nil)
-	if err == store.ErrKeyNotFound {
+func (kv *KvSource) ListRecursive(ctx context.Context, key string, pairs map[string][]byte) error {
+	pairsN1, err := kv.List(ctx, key, nil)
+	if errors.Is(err, store.ErrKeyNotFound) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	if len(pairsN1) == 0 {
-		pairLeaf, err := kv.Get(key, nil)
+		pairLeaf, err := kv.Get(ctx, key, nil)
 		if err != nil {
 			return err
 		}
@@ -351,7 +349,7 @@ func (kv *KvSource) ListRecursive(key string, pairs map[string][]byte) error {
 	}
 	for _, p := range pairsN1 {
 		if p.Key != key {
-			err := kv.ListRecursive(p.Key, pairs)
+			err := kv.ListRecursive(ctx, p.Key, pairs)
 			if err != nil {
 				return err
 			}
@@ -361,11 +359,11 @@ func (kv *KvSource) ListRecursive(key string, pairs map[string][]byte) error {
 }
 
 // ListValuedPairWithPrefix lists all key value children under key
-func (kv *KvSource) ListValuedPairWithPrefix(key string) (map[string][]byte, error) {
+func (kv *KvSource) ListValuedPairWithPrefix(ctx context.Context, key string) (map[string][]byte, error) {
 	pairs := make(map[string][]byte)
 
-	pairsN1, err := kv.List(key, nil)
-	if err == store.ErrKeyNotFound {
+	pairsN1, err := kv.List(ctx, key, nil)
+	if errors.Is(err, store.ErrKeyNotFound) {
 		return pairs, nil
 	}
 	if err != nil {

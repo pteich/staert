@@ -3,15 +3,16 @@ package staert
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/abronan/valkeyrie/store"
 	"github.com/containous/flaeg"
 	"github.com/containous/flaeg/parse"
+	"github.com/kvtools/valkeyrie/store"
 	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -384,7 +385,7 @@ func TestLoadConfigKvSourceNestedPtrsNil(t *testing.T) {
 		"prefix",
 	}
 
-	err := kv.LoadConfig(config)
+	err := kv.LoadConfig(context.Background(), config)
 	require.NoError(t, err)
 
 	expected := &StructPtr{
@@ -789,7 +790,7 @@ func TestStoreConfigEmbeddedSquash(t *testing.T) {
 		"prefix",
 	}
 
-	err := kv.StoreConfig(config)
+	err := kv.StoreConfig(context.Background(), config)
 	require.NoError(t, err)
 
 	expected := map[string]string{
@@ -798,7 +799,7 @@ func TestStoreConfigEmbeddedSquash(t *testing.T) {
 		"prefix/vfoo": "toto",
 	}
 
-	result, err := kv.ListValuedPairWithPrefix("prefix")
+	result, err := kv.ListValuedPairWithPrefix(context.Background(), "prefix")
 	require.NoError(t, err)
 
 	assert.Len(t, result, len(expected))
@@ -928,7 +929,7 @@ func TestListRecursive(t *testing.T) {
 			}
 
 			pairs := map[string][]byte{}
-			err := kv.ListRecursive(kv.Prefix, pairs)
+			err := kv.ListRecursive(context.Background(), kv.Prefix, pairs)
 			require.NoError(t, err)
 
 			assert.Equal(t, test.expected, pairs)
@@ -976,7 +977,7 @@ func TestListRecursive_Error(t *testing.T) {
 			kv := &KvSource{Store: test.store, Prefix: "prefix"}
 
 			pairs := map[string][]byte{}
-			err := kv.ListRecursive(kv.Prefix, pairs)
+			err := kv.ListRecursive(context.Background(), kv.Prefix, pairs)
 			assert.EqualError(t, err, test.expected)
 			assert.Len(t, pairs, 0)
 		})
@@ -1056,7 +1057,7 @@ func TestListValuedPairWithPrefix(t *testing.T) {
 				Prefix: "prefix",
 			}
 
-			pairs, err := kv.ListValuedPairWithPrefix(kv.Prefix)
+			pairs, err := kv.ListValuedPairWithPrefix(context.Background(), kv.Prefix)
 			require.NoError(t, err)
 
 			assert.Equal(t, test.expected, pairs)
@@ -1076,7 +1077,7 @@ func TestListValuedPairWithPrefix_Error(t *testing.T) {
 		"prefix",
 	}
 
-	pairs, err := kv.ListValuedPairWithPrefix(kv.Prefix)
+	pairs, err := kv.ListValuedPairWithPrefix(context.Background(), kv.Prefix)
 	assert.NotNil(t, err)
 	assert.Len(t, pairs, 0)
 }
